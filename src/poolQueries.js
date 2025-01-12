@@ -1,12 +1,28 @@
-// src/poolQueries.js
-import { Contract } from 'ethers';
+import { Contract, JsonRpcProvider } from 'ethers';
 import NodeCache from 'node-cache';
 import fetch from 'node-fetch';
 import { UNISWAP_V3_POOL_ABI, ERC20_ABI } from './constants.js';
 
 const cache = new NodeCache({ stdTTL: 300 });
 
-// Move fetchGraphQL here since we need it
+// Define the GraphQL query at the top of the file
+const TOKEN_METADATA_QUERY = `
+    query TokenData($tokenIds: [String!]!) {
+        tokens(where: { id_in: $tokenIds }) {
+            id
+            symbol
+            name
+            decimals
+            derivedETH
+            totalSupply
+            volume
+            txCount
+            totalValueLocked
+            totalValueLockedUSD
+        }
+    }
+`;
+
 async function fetchGraphQL(query, variables = {}) {
     const GRAPH_API_KEY = process.env.GRAPH_API_KEY;
     if (!GRAPH_API_KEY) {
@@ -51,18 +67,21 @@ const initializeProvider = () => {
             throw new Error('RPC_URL not found in environment variables');
         }
         try {
-            provider = new ethers.JsonRpcProvider(process.env.RPC_URL);
-            provider.getNetwork().catch(error => {
-                console.error('Failed to initialize provider:', error);
-                provider = null;
-                throw new Error('Failed to connect to Ethereum network');
-            });
+            provider = new JsonRpcProvider(process.env.RPC_URL);
+            return provider.getNetwork()
+                .then(() => provider)
+                .catch(error => {
+                    console.error('Failed to initialize provider:', error);
+                    provider = null;
+                    throw new Error('Failed to connect to Ethereum network');
+                });
         } catch (error) {
             console.error('Provider initialization error:', error);
+            provider = null;
             throw new Error('Failed to initialize Ethereum provider');
         }
     }
-    return provider;
+    return Promise.resolve(provider);
 };
 
 export const getEnhancedPoolInfo = async (poolAddress) => {
@@ -70,50 +89,60 @@ export const getEnhancedPoolInfo = async (poolAddress) => {
     const cachedData = cache.get(cacheKey);
     if (cachedData) return cachedData;
 
-    const provider = initializeProvider();
-    const poolContract = new Contract(poolAddress, UNISWAP_V3_POOL_ABI, provider);
-    
-    const [token0Address, token1Address, fee, liquidity, slot0] = await Promise.all([
-        poolContract.token0(),
-        poolContract.token1(),
-        poolContract.fee(),
-        poolContract.liquidity(),
-        poolContract.slot0()
-    ]);
+    try {
+        const provider = await initializeProvider();
+        const poolContract = new Contract(poolAddress, UNISWAP_V3_POOL_ABI, provider);
+        
+        const [token0Address, token1Address, fee, liquidity, slot0] = await Promise.all([
+            poolContract.token0(),
+            poolContract.token1(),
+            poolContract.fee(),
+            poolContract.liquidity(),
+            poolContract.slot0()
+        ]);
 
-    // Fetch token metadata from Graph API
-    const tokenData = await fetchGraphQL(TOKEN_METADATA_QUERY, {
-        tokenIds: [token0Address.toLowerCase(), token1Address.toLowerCase()]
-    });
+        // Fetch token metadata from Graph API
+        const tokenData = await fetchGraphQL(TOKEN_METADATA_QUERY, {
+            tokenIds: [token0Address.toLowerCase(), token1Address.toLowerCase()]
+        });
 
-    const tokens = tokenData.data.tokens.reduce((acc, token) => {
-        acc[token.id] = token;
-        return acc;
-    }, {});
+        const tokens = tokenData.data.tokens.reduce((acc, token) => {
+            acc[token.id] = token;
+            return acc;
+        }, {});
 
-    const poolInfo = {
-        address: poolAddress,
-        token0: {
-            address: token0Address,
-            symbol: tokens[token0Address.toLowerCase()]?.symbol || 'Unknown',
-            logo: `https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/ethereum/assets/${token0Address}/logo.png`
-        },
-        token1: {
-            address: token1Address,
-            symbol: tokens[token1Address.toLowerCase()]?.symbol || 'Unknown',
-            logo: `https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/ethereum/assets/${token1Address}/logo.png`
-        },
-        fee: Number(fee),
-        liquidity: liquidity.toString(),
-        sqrtPrice: slot0.sqrtPriceX96.toString(),
-        tick: Number(slot0.tick)
-    };
+        const poolInfo = {
+            address: poolAddress,
+            token0: {
+                address: token0Address,
+                symbol: tokens[token0Address.toLowerCase()]?.symbol || 'Unknown',
+                name: tokens[token0Address.toLowerCase()]?.name || 'Unknown',
+                decimals: tokens[token0Address.toLowerCase()]?.decimals || 18,
+                derivedETH: tokens[token0Address.toLowerCase()]?.derivedETH || '0',
+                logo: `https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/ethereum/assets/${token0Address}/logo.png`
+            },
+            token1: {
+                address: token1Address,
+                symbol: tokens[token1Address.toLowerCase()]?.symbol || 'Unknown',
+                name: tokens[token1Address.toLowerCase()]?.name || 'Unknown',
+                decimals: tokens[token1Address.toLowerCase()]?.decimals || 18,
+                derivedETH: tokens[token1Address.toLowerCase()]?.derivedETH || '0',
+                logo: `https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/ethereum/assets/${token1Address}/logo.png`
+            },
+            fee: Number(fee),
+            liquidity: liquidity.toString(),
+            sqrtPrice: slot0.sqrtPriceX96.toString(),
+            tick: Number(slot0.tick)
+        };
 
-    cache.set(cacheKey, poolInfo);
-    return poolInfo;
+        cache.set(cacheKey, poolInfo);
+        return poolInfo;
+    } catch (error) {
+        console.error('Error in getEnhancedPoolInfo:', error);
+        throw error;
+    }
 };
 
-// Other functions remain the same
 export const getPoolMetrics = async (poolAddress) => {
     // Implementation as before
 };
@@ -121,13 +150,3 @@ export const getPoolMetrics = async (poolAddress) => {
 export const getPoolRange = async (poolAddress) => {
     // Implementation as before
 };
-
-const TOKEN_METADATA_QUERY = `
-    query TokenData($tokenIds: [String!]!) {
-        tokens(where: { id_in: $tokenIds }) {
-            id
-            symbol
-            derivedETH
-        }
-    }
-`;
