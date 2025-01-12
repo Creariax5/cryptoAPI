@@ -126,22 +126,28 @@ export const getTopPools = async () => {
                 token0 {
                     id
                     symbol
+                    decimals
                 }
                 token1 {
                     id
                     symbol
+                    decimals
                 }
                 totalValueLockedUSD
                 volumeUSD
                 feeTier
                 poolDayData(
-                    first: ${30}
+                    first: 30
                     orderBy: date
                     orderDirection: desc
                     where: { date_gt: $startTime }
                 ) {
+                    date
                     volumeUSD
                     feesUSD
+                    tvlUSD
+                    token0Price
+                    token1Price
                 }
             }
         }
