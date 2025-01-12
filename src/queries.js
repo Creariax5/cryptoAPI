@@ -112,8 +112,8 @@ export const getTopPools = async () => {
     const cachedData = cache.get(cacheKey);
     if (cachedData) return cachedData;
 
-    // Calculate timestamp for 24 hours ago
-    const startTime = Math.floor(Date.now() / 1000) - (24 * 60 * 60);
+    // Calculate timestamp for 30 days ago
+    const startTime = Math.floor(Date.now() / 1000) - (30 * 24 * 60 * 60);
 
     const query = `
         query TopPools($startTime: Int!) {
@@ -126,12 +126,10 @@ export const getTopPools = async () => {
                 token0 {
                     id
                     symbol
-                    decimals
                 }
                 token1 {
                     id
                     symbol
-                    decimals
                 }
                 totalValueLockedUSD
                 volumeUSD
@@ -159,8 +157,27 @@ export const getTopPools = async () => {
 
     const response = await fetchGraphQL(query, variables);
     const pools = response.data?.pools || [];
-    cache.set(cacheKey, pools);
-    return pools;
+    
+    // Process the pool data to include aggregate metrics
+    const processedPools = pools.map(pool => {
+        const dayData = pool.poolDayData || [];
+        const totalVolume = dayData.reduce((sum, day) => sum + Number(day.volumeUSD || 0), 0);
+        const totalFees = dayData.reduce((sum, day) => sum + Number(day.feesUSD || 0), 0);
+        const averageTVL = dayData.length > 0 
+            ? dayData.reduce((sum, day) => sum + Number(day.tvlUSD || 0), 0) / dayData.length 
+            : Number(pool.totalValueLockedUSD);
+
+        return {
+            ...pool,
+            thirtyDayVolume: totalVolume,
+            thirtyDayFees: totalFees,
+            averageTVL: averageTVL,
+            dayData: dayData
+        };
+    });
+
+    cache.set(cacheKey, processedPools);
+    return processedPools;
 };
 
 export const searchPools = async (searchQuery) => {
