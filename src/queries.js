@@ -112,41 +112,50 @@ export const getTopPools = async () => {
     const cachedData = cache.get(cacheKey);
     if (cachedData) return cachedData;
 
-    const query = `{
-        pools(
-            first: 100,
-            orderBy: totalValueLockedUSD,
-            orderDirection: desc
-        ) {
-            id
-            token0 {
-                id
-                symbol
-            }
-            token1 {
-                id
-                symbol
-            }
-            totalValueLockedUSD
-            volumeUSD
-            feeTier
-            poolDayData(
-                first: ${1}
-                orderBy: date
+    // Calculate timestamp for 24 hours ago
+    const startTime = Math.floor(Date.now() / 1000) - (24 * 60 * 60);
+
+    const query = `
+        query TopPools($startTime: Int!) {
+            pools(
+                first: 100,
+                orderBy: totalValueLockedUSD,
                 orderDirection: desc
-                where: { date_gt: $startTime }
             ) {
-                date
+                id
+                token0 {
+                    id
+                    symbol
+                }
+                token1 {
+                    id
+                    symbol
+                }
+                totalValueLockedUSD
                 volumeUSD
-                tvlUSD
-                feesUSD
-                token0Price
-                token1Price
+                feeTier
+                poolDayData(
+                    first: 1
+                    orderBy: date
+                    orderDirection: desc
+                    where: { date_gt: $startTime }
+                ) {
+                    date
+                    volumeUSD
+                    tvlUSD
+                    feesUSD
+                    token0Price
+                    token1Price
+                }
             }
         }
-    }`;
+    `;
 
-    const response = await fetchGraphQL(query);
+    const variables = {
+        startTime: startTime
+    };
+
+    const response = await fetchGraphQL(query, variables);
     const pools = response.data?.pools || [];
     cache.set(cacheKey, pools);
     return pools;
