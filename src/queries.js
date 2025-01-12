@@ -114,7 +114,7 @@ export const getTopPools = async () => {
 
     const query = `{
         pools(
-            first: 200,
+            first: 100,
             orderBy: totalValueLockedUSD,
             orderDirection: desc
         ) {
