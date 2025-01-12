@@ -135,17 +135,13 @@ export const getTopPools = async () => {
                 volumeUSD
                 feeTier
                 poolDayData(
-                    first: 1
+                    first: ${30}
                     orderBy: date
                     orderDirection: desc
                     where: { date_gt: $startTime }
                 ) {
-                    date
                     volumeUSD
-                    tvlUSD
                     feesUSD
-                    token0Price
-                    token1Price
                 }
             }
         }
